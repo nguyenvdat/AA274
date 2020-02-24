@@ -5,8 +5,9 @@ from scipy.integrate import cumtrapz
 import matplotlib.pyplot as plt
 from utils import *
 
+
 class State:
-    def __init__(self,x,y,V,th):
+    def __init__(self, x, y, V, th):
         self.x = x
         self.y = y
         self.V = V
@@ -33,9 +34,29 @@ def compute_traj_coeffs(initial_state, final_state, tf):
     Hint: Use the np.linalg.solve function.
     """
     ########## Code starts here ##########
+    A = np.array([[1, 0, 0, 0, 0, 0, 0, 0],
+                  [0, 0, 0, 0, 1, 0, 0, 0],
+                  [0, 1, 0, 0, 0, 0, 0, 0],
+                  [0, 0, 0, 0, 0, 1, 0, 0],
+                  [1, tf, tf**2, tf**3, 0, 0, 0, 0],
+                  [0, 0, 0, 0, 1, tf, tf**2, tf**3],
+                  [0, 1, 2*tf, 3*tf**2, 0, 0, 0, 0],
+                  [0, 0, 0, 0, 0, 1, 2*tf, 3*tf**2],
+                  ])
+    B = np.array([initial_state.x,
+                  initial_state.y,
+                  initial_state.xd,
+                  initial_state.yd,
+                  final_state.x,
+                  final_state.y,
+                  final_state.xd,
+                  final_state.yd,
+                  ])
+    coeffs = np.linalg.solve(A, B)
 
     ########## Code ends here ##########
     return coeffs
+
 
 def compute_traj(coeffs, tf, N):
     """
@@ -47,13 +68,28 @@ def compute_traj(coeffs, tf, N):
         traj (np.array shape [N,7]), N points along the trajectory, from t=0
             to t=tf, evenly spaced in time
     """
-    t = np.linspace(0,tf,N) # generate evenly spaced points from 0 to tf
-    traj = np.zeros((N,7))
+    t = np.linspace(0, tf, N)  # generate evenly spaced points from 0 to tf
+    traj = np.zeros((N, 7))
+    x_coeff = coeffs[:4]
+    y_coeff = coeffs[4:]
     ########## Code starts here ##########
-    
+    for i in range(N):
+        ti = t[i]
+        t_vec = [1, ti, ti**2, ti**3]
+        t_dot_vec = [0, 1, 2*ti, 3*ti**2]
+        t_2dot_vec = [0, 0, 2, 6*ti]
+        traj[i, 0] = np.dot(x_coeff, t_vec)
+        traj[i, 1] = np.dot(y_coeff, t_vec)
+        traj[i, 2] = np.math.atan2(
+            np.dot(y_coeff, t_dot_vec), np.dot(x_coeff, t_dot_vec))
+        traj[i, 3] = np.dot(x_coeff, t_dot_vec)
+        traj[i, 4] = np.dot(y_coeff, t_dot_vec)
+        traj[i, 5] = np.dot(x_coeff, t_2dot_vec)
+        traj[i, 6] = np.dot(y_coeff, t_2dot_vec)
     ########## Code ends here ##########
 
     return t, traj
+
 
 def compute_controls(traj):
     """
@@ -64,10 +100,24 @@ def compute_controls(traj):
         om (np.array shape [N]) om at each point of traj
     """
     ########## Code starts here ##########
-    
+    N = traj.shape[0]
+    V = np.zeros(N)
+    om = np.zeros(N)
+    for i in range(N):
+        theta = traj[i, 2]
+        x_dot = traj[i, 3]
+        y_dot = traj[i, 4]
+        V[i] = x_dot / \
+            np.cos(theta) if not np.allclose(np.cos(theta), 0) else y_dot/np.sin(theta)
+        J = np.array([[np.cos(theta), -V[i]*np.sin(theta)],
+                      [np.sin(theta), V[i]*np.cos(theta)]])
+        ip = np.linalg.solve(J, traj[i, 5:])
+        om[i] = ip[1]
+
     ########## Code ends here ##########
 
     return V, om
+
 
 def compute_arc_length(V, t):
     """
@@ -82,9 +132,10 @@ def compute_arc_length(V, t):
     Hint: Use the function cumtrapz. This should take one line.
     """
     ########## Code starts here ##########
-    
+    s = cumtrapz(V, t, initial=0)
     ########## Code ends here ##########
     return s
+
 
 def rescale_V(V, om, V_max, om_max):
     """
@@ -103,7 +154,9 @@ def rescale_V(V, om, V_max, om_max):
     Hint: This should only take one or two lines.
     """
     ########## Code starts here ##########
-    
+    V_max_om = om_max / om * V
+    V_max_om = np.where(V_max_om >= 0, V_max_om, 1e9)
+    V_tilde = np.minimum(V, np.minimum(V_max, V_max_om))
     ########## Code ends here ##########
     return V_tilde
 
@@ -120,9 +173,10 @@ def compute_tau(V_tilde, s):
     Hint: Use the function cumtrapz. This should take one line.
     """
     ########## Code starts here ##########
-    
+    tau = cumtrapz(1/V_tilde, s, initial=0)
     ########## Code ends here ##########
     return tau
+
 
 def rescale_om(V, om, V_tilde):
     """
@@ -137,20 +191,22 @@ def rescale_om(V, om, V_tilde):
     Hint: This should take one line.
     """
     ########## Code starts here ##########
-    
+    om_tilde = om / V * V_tilde
     ########## Code ends here ##########
     return om_tilde
+
 
 def compute_traj_with_limits(z_0, z_f, tf, N, V_max, om_max):
     coeffs = compute_traj_coeffs(initial_state=z_0, final_state=z_f, tf=tf)
     t, traj = compute_traj(coeffs=coeffs, tf=tf, N=N)
-    V,om = compute_controls(traj=traj)
+    V, om = compute_controls(traj=traj)
     s = compute_arc_length(V, t)
     V_tilde = rescale_V(V, om, V_max, om_max)
     tau = compute_tau(V_tilde, s)
     om_tilde = rescale_om(V, om, V_tilde)
 
     return traj, tau, V_tilde, om_tilde
+
 
 def interpolate_traj(traj, tau, V_tilde, om_tilde, dt, s_f):
     """
@@ -175,22 +231,39 @@ def interpolate_traj(traj, tau, V_tilde, om_tilde, dt, s_f):
     t_new = dt*np.array(range(N_new+1))
 
     # Interpolate for state trajectory
-    traj_scaled = np.zeros((N_new+1,7))
-    traj_scaled[:,0] = np.interp(t_new,tau,traj[:,0])   # x
-    traj_scaled[:,1] = np.interp(t_new,tau,traj[:,1])   # y
-    traj_scaled[:,2] = np.interp(t_new,tau,traj[:,2])   # th
+    traj_scaled = np.zeros((N_new+1, 7))
+    traj_scaled[:, 0] = np.interp(t_new, tau, traj[:, 0])   # x
+    traj_scaled[:, 1] = np.interp(t_new, tau, traj[:, 1])   # y
+    traj_scaled[:, 2] = np.interp(t_new, tau, traj[:, 2])   # th
     # Interpolate for scaled velocities
     V_scaled = np.interp(t_new, tau, V_tilde)           # V
     om_scaled = np.interp(t_new, tau, om_tilde)         # om
     # Compute xy velocities
-    traj_scaled[:,3] = V_scaled*np.cos(traj_scaled[:,2])    # xd
-    traj_scaled[:,4] = V_scaled*np.sin(traj_scaled[:,2])    # yd
+    traj_scaled[:, 3] = V_scaled*np.cos(traj_scaled[:, 2])    # xd
+    traj_scaled[:, 4] = V_scaled*np.sin(traj_scaled[:, 2])    # yd
     # Compute xy acclerations
-    traj_scaled[:,5] = np.append(np.diff(traj_scaled[:,3])/dt,-s_f.V*om_scaled[-1]*np.sin(s_f.th)) # xdd
-    traj_scaled[:,6] = np.append(np.diff(traj_scaled[:,4])/dt, s_f.V*om_scaled[-1]*np.cos(s_f.th)) # ydd
+    traj_scaled[:, 5] = np.append(
+        np.diff(traj_scaled[:, 3])/dt, -s_f.V*om_scaled[-1]*np.sin(s_f.th))  # xdd
+    traj_scaled[:, 6] = np.append(
+        np.diff(traj_scaled[:, 4])/dt, s_f.V*om_scaled[-1]*np.cos(s_f.th))  # ydd
 
     return t_new, V_scaled, om_scaled, traj_scaled
 
+
+# if __name__ == "__main__":
+if __name__ == "__main1__":
+    initial_state = State(0, 0, 0.5, -np.pi/2)
+    final_state = State(5, 5, 0.5, -np.pi/2)
+    tf = 15
+    coeffs = compute_traj_coeffs(initial_state, final_state, tf)
+    N = 15
+    t, traj = compute_traj(coeffs, tf, N)
+    V, om = compute_controls(traj)
+    print(traj[0,2])
+    print(om)
+
+
+# if __name__ == "__main1__":
 if __name__ == "__main__":
     # traj, V, om = differential_flatness_trajectory()
     # Constants
@@ -211,7 +284,7 @@ if __name__ == "__main__":
 
     coeffs = compute_traj_coeffs(initial_state=s_0, final_state=s_f, tf=tf)
     t, traj = compute_traj(coeffs=coeffs, tf=tf, N=N)
-    V,om = compute_controls(traj=traj)
+    V, om = compute_controls(traj=traj)
 
     part_b_complete = False
     s = compute_arc_length(V, t)
@@ -221,7 +294,8 @@ if __name__ == "__main__":
         tau = compute_tau(V_tilde, s)
         om_tilde = rescale_om(V, om, V_tilde)
 
-        t_new, V_scaled, om_scaled, traj_scaled = interpolate_traj(traj, tau, V_tilde, om_tilde, dt, s_f)
+        t_new, V_scaled, om_scaled, traj_scaled = interpolate_traj(
+            traj, tau, V_tilde, om_tilde, dt, s_f)
 
         # Save trajectory data
         data = {'z': traj_scaled, 'V': V_scaled, 'om': om_scaled}
@@ -232,7 +306,7 @@ if __name__ == "__main__":
     # Plots
     plt.figure(figsize=(15, 7))
     plt.subplot(2, 2, 1)
-    plt.plot(traj[:,0], traj[:,1], 'k-',linewidth=2)
+    plt.plot(traj[:, 0], traj[:, 1], 'k-', linewidth=2)
     plt.grid('on')
     plt.plot(s_0.x, s_0.y, 'go', markerfacecolor='green', markersize=15)
     plt.plot(s_f.x, s_f.y, 'ro', markerfacecolor='red', markersize=15)
@@ -257,7 +331,8 @@ if __name__ == "__main__":
         plt.legend(['V [m/s]', '$\omega$ [rad/s]'], loc="best")
         plt.grid('on')
     else:
-        plt.text(0.5,0.5,"[Problem iv not completed]", horizontalalignment='center', verticalalignment='center', transform=plt.gca().transAxes)
+        plt.text(0.5, 0.5, "[Problem iv not completed]", horizontalalignment='center',
+                 verticalalignment='center', transform=plt.gca().transAxes)
     plt.xlabel('Time [s]')
     plt.title('Scaled Control Input')
     plt.tight_layout()
@@ -272,7 +347,8 @@ if __name__ == "__main__":
         labels.append("Scaled")
         plt.legend(handles, labels, loc="best")
     else:
-        plt.text(0.5,0.5,"[Problem iv not completed]", horizontalalignment='center', verticalalignment='center', transform=plt.gca().transAxes)
+        plt.text(0.5, 0.5, "[Problem iv not completed]", horizontalalignment='center',
+                 verticalalignment='center', transform=plt.gca().transAxes)
     plt.grid('on')
     plt.xlabel('Time [s]')
     plt.ylabel('Arc-length [m]')
