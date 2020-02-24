@@ -6,8 +6,10 @@ RHO_THRES = 0.05
 ALPHA_THRES = 0.1
 DELTA_THRES = 0.1
 
+
 class PoseController:
     """ Pose stabilization controller """
+
     def __init__(self, k1, k2, k3, V_max=0.5, om_max=1):
         self.k1 = k1
         self.k2 = k2
@@ -34,7 +36,15 @@ class PoseController:
         may also be useful, look up its documentation
         """
         ########## Code starts here ##########
-        
+        x_diff = self.x_g - x
+        y_diff = self.y_g - y
+        ro = np.sqrt(x_diff**2 + y_diff**2)
+        alpha = wrapToPi(np.math.atan2(y_diff, x_diff) - th)
+        sigma = wrapToPi(np.math.atan2(y_diff, x_diff) - self.th_g)
+        V = self.k1 * ro * np.cos(alpha)
+        om = self.k2 * alpha + self.k1 * np.sinc(alpha) * \
+            np.cos(alpha) * (alpha + self.k3 * sigma)
+
         ########## Code ends here ##########
 
         # apply control limits
