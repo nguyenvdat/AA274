@@ -110,6 +110,8 @@ class RRTConnect(object):
 
         V_fw = np.zeros((max_iters, state_dim))     # Forward tree
         V_bw = np.zeros((max_iters, state_dim))     # Backward tree
+        V_fw[0, :] = self.x_init
+        V_bw[0, :] = self.x_goal
 
         n_fw = 1    # the current size of the forward tree
         n_bw = 1    # the current size of the backward tree
@@ -118,6 +120,7 @@ class RRTConnect(object):
         P_bw = -np.ones(max_iters, dtype=int)       # Stores the parent of each state in the backward tree
 
         success = False
+        # np.random.seed(2)
 
         ## Intermediate Outputs
         # You must update and/or populate:
@@ -132,14 +135,81 @@ class RRTConnect(object):
         # Hint: Use your implementation of RRT as a reference
 
         ########## Code starts here ##########
-        
+        def reconstruct_path():
+            self.path = []
+            idx_current = n_bw - 1
+            while idx_current != -1:
+                self.path.append(V_bw[idx_current, :])
+                idx_current = P_bw[idx_current]
+            self.path.reverse()
+            idx_current = n_fw - 1
+            while idx_current != -1:
+                if idx_current != n_fw - 1:
+                    self.path.append(V_fw[idx_current, :])
+                idx_current = P_fw[idx_current]
+            self.path.reverse()
+
+        for k in range(max_iters):
+            x_rand = np.array([np.random.uniform(self.statespace_lo[i], self.statespace_hi[i]) for i in range(len(self.statespace_lo))])
+            x_near_id = self.find_nearest_forward(V_fw[:n_fw, :], x_rand)
+            x_near = V_fw[x_near_id, :]
+            x_new = self.steer_towards_forward(x_near, x_rand, eps)
+            if self.is_free_motion(self.obstacles, x_near, x_new):
+                V_fw[n_fw, :] = x_new
+                P_fw[n_fw] = x_near_id
+                n_fw += 1
+                x_connect_id = self.find_nearest_backward(V_bw[:n_bw, :], x_new)
+                x_connect = V_bw[x_connect_id, :]
+                while True:
+                    x_new_connect = self.steer_towards_backward(x_new, x_connect, eps)
+                    if self.is_free_motion(self.obstacles, x_new_connect, x_connect):
+                        V_bw[n_bw, :] = x_new_connect
+                        P_bw[n_bw] = x_connect_id
+                        n_bw += 1
+                        if np.sqrt(np.sum((x_new-x_new_connect)**2)) < 0.00001:
+                            reconstruct_path()
+                            success = True
+                            break
+                        x_connect = x_new_connect
+                        x_connect_id = n_bw - 1
+                    else:
+                        break
+                if success == True:
+                    break
+
+            x_rand = np.array([np.random.uniform(self.statespace_lo[i], self.statespace_hi[i]) for i in range(len(self.statespace_lo))])
+            x_near_id = self.find_nearest_backward(V_bw[:n_bw, :], x_rand)
+            x_near = V_bw[x_near_id, :]
+            x_new = self.steer_towards_backward(x_rand, x_near, eps)
+            if self.is_free_motion(self.obstacles, x_new, x_near):
+                V_bw[n_bw, :] = x_new
+                P_bw[n_bw] = x_near_id
+                n_bw += 1
+                x_connect_id = self.find_nearest_forward(V_fw[:n_fw, :], x_new)
+                x_connect = V_fw[x_connect_id, :]
+                while True:
+                    x_new_connect = self.steer_towards_forward(x_connect, x_new, eps)
+                    if self.is_free_motion(self.obstacles, x_connect, x_new_connect):
+                        V_fw[n_fw, :] = x_new_connect
+                        P_fw[n_fw] = x_connect_id
+                        n_fw += 1
+                        if np.sqrt(np.sum((x_new-x_new_connect)**2)) < 0.00001:
+                            reconstruct_path()
+                            success = True
+                            break
+                        x_connect = x_new_connect
+                        x_connect_id = n_fw - 1
+                    else:
+                        break
+                if success == True:
+                    break
 
         ########## Code ends here ##########
 
         plt.figure()
         self.plot_problem()
-        self.plot_tree(V_fw, P_fw, color="blue", linewidth=.5, label="RRTConnect forward tree")
-        self.plot_tree_backward(V_bw, P_bw, color="purple", linewidth=.5, label="RRTConnect backward tree")
+        self.plot_tree(V_fw[:n_fw, :], P_fw[:n_fw], color="blue", linewidth=.5, label="RRTConnect forward tree")
+        self.plot_tree_backward(V_bw[:n_bw, :], P_bw[:n_bw], color="purple", linewidth=.5, label="RRTConnect backward tree")
         
         if success:
             self.plot_path(color="green", linewidth=2, label="solution path")
@@ -166,7 +236,7 @@ class GeometricRRTConnect(RRTConnect):
     def find_nearest_forward(self, V, x):
         ########## Code starts here ##########
         # Hint: This should take one line.
-        
+        return np.argmin(np.sum((V - x)**2, axis=1))
         ########## Code ends here ##########
 
     def find_nearest_backward(self, V, x):
@@ -175,7 +245,12 @@ class GeometricRRTConnect(RRTConnect):
     def steer_towards_forward(self, x1, x2, eps):
         ########## Code starts here ##########
         # Hint: This should take one line.
-        
+        v = x2 - x1
+        d = np.sqrt(np.sum(v**2))
+        if d < eps:
+            return x2
+        u = v/d
+        return x1 + eps*u
         ########## Code ends here ##########
 
     def steer_towards_backward(self, x1, x2, eps):
@@ -195,6 +270,7 @@ class GeometricRRTConnect(RRTConnect):
         self.plot_tree(V, P, **kwargs)
 
     def plot_path(self, **kwargs):
+        print(len(self.path))
         path = np.array(self.path)
         plt.plot(path[:,0], path[:,1], **kwargs)
 
@@ -229,22 +305,35 @@ class DubinsRRTConnect(RRTConnect):
 
     def find_nearest_forward(self, V, x):
         ########## Code starts here ##########
-        
+        from dubins import path_length
+        return np.argmin([path_length(V[i, :], x, self.turning_radius) for i in range(V.shape[0])])
         ########## Code ends here ##########
 
     def find_nearest_backward(self, V, x):
         ########## Code starts here ##########
-        
+        from dubins import path_length
+        return np.argmin([path_length(x, V[i, :], self.turning_radius) for i in range(V.shape[0])])
+
         ########## Code ends here ##########
 
     def steer_towards_forward(self, x1, x2, eps):
         ########## Code starts here ##########
-        
+        from dubins import path_sample
+        pts = path_sample(x1, x2, 1.001*self.turning_radius, eps)[0]
+        if len(pts) > 1:
+            return np.array(pts[1])
+        else:
+            return x2
         ########## Code ends here ##########
 
     def steer_towards_backward(self, x1, x2, eps):
         ########## Code starts here ##########
-        
+        from dubins import path_sample
+        pts = path_sample(self.reverse_heading(x2), self.reverse_heading(x1), 1.001*self.turning_radius, eps)[0]
+        if len(pts) > 1:
+            return self.reverse_heading(pts[1])
+        else:
+            return x1
         ########## Code ends here ##########
 
     def is_free_motion(self, obstacles, x1, x2, resolution = np.pi/6):
@@ -279,6 +368,7 @@ class DubinsRRTConnect(RRTConnect):
     def plot_path(self, resolution = np.pi/24, **kwargs):
         pts = []
         path = np.array(self.path)
+        print(len(self.path))
         for i in range(path.shape[0] - 1):
             pts.extend(path_sample(path[i], path[i+1], self.turning_radius, self.turning_radius*resolution)[0])
         plt.plot([x for x, y, th in pts], [y for x, y, th in pts], **kwargs)
