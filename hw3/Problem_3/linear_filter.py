@@ -16,7 +16,19 @@ def corr(F, I):
         G: An (m, n)-shaped ndarray containing the correlation of the filter with the image.
     """
     ########## Code starts here ##########
-    raise NotImplementedError("Implement me!")
+    k, ell, c = F.shape
+    m,n,c = I.shape
+    G = np.zeros((m, n))
+    F_vec = F.flatten()
+    zero_width = (ell - n % ell) % ell
+    zero_height = (k - m % k) % k
+    I = np.hstack((I, np.zeros((m, zero_width, c))))
+    I = np.vstack((I, np.zeros((zero_height, I.shape[1], c))))
+    for i in range(I.shape[0] - k + 1):
+        for j in range(I.shape[1] - ell + 1):
+            I_vec = I[i:i+k, j:j+ell, :].flatten()
+            G[i,j] = np.dot(F_vec, I_vec)
+    return G
     ########## Code ends here ##########
 
 
@@ -30,7 +42,19 @@ def norm_cross_corr(F, I):
         G: An (m, n)-shaped ndarray containing the normalized cross-correlation of the filter with the image.
     """
     ########## Code starts here ##########
-    raise NotImplementedError("Implement me!")
+    k, ell, c = F.shape
+    m,n,c = I.shape
+    G = np.zeros((m, n))
+    F_vec = F.flatten()
+    zero_width = (ell - n % ell) % ell
+    zero_height = (k - m % k) % k
+    I = np.hstack((I, np.zeros((m, zero_width, c))))
+    I = np.vstack((I, np.zeros((zero_height, I.shape[1], c))))
+    for i in range(I.shape[0] - k + 1):
+        for j in range(I.shape[1] - ell + 1):
+            I_vec = I[i:i+k, j:j+ell, :].flatten()
+            G[i,j] = np.dot(F_vec, I_vec) / (np.linalg.norm(F_vec)*np.linalg.norm(I_vec))
+    return G
     ########## Code ends here ##########
 
 
@@ -77,7 +101,7 @@ def main():
         start = time.time()
         corr_img = corr(filt, test_card)
         stop = time.time()
-        print 'Correlation function runtime:', stop - start, 's'
+        print('Correlation function runtime:', stop - start, 's')
         show_save_corr_img("corr_img_filt%d.png" % idx, corr_img, filt)
 
 
