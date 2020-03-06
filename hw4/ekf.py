@@ -6,6 +6,7 @@ import turtlebot_model as tb
 class Ekf(object):
     """
     Base class for EKF Localization and SLAM.
+
     Usage:
         ekf = EKF(x0, Sigma0, R)
         while True:
@@ -17,6 +18,7 @@ class Ekf(object):
     def __init__(self, x0, Sigma0, R):
         """
         EKF constructor.
+
         Inputs:
                 x0: np.array[n,]  - initial belief mean.
             Sigma0: np.array[n,n] - initial belief covariance.
@@ -29,6 +31,7 @@ class Ekf(object):
     def transition_update(self, u, dt):
         """
         Performs the transition update step by updating (self.x, self.Sigma).
+
         Inputs:
              u: np.array[2,] - zero-order hold control input.
             dt: float        - duration of discrete time step.
@@ -39,12 +42,16 @@ class Ekf(object):
 
         ########## Code starts here ##########
         # TODO: Update self.x, self.Sigma.
+        self.x = g
+        self.Sigma = np.dot(Gx, np.dot(self.Sigma, Gx.T)) + \
+            dt*np.dot(Gu, np.dot(self.R, Gu.T))
 
         ########## Code ends here ##########
 
     def transition_model(self, u, dt):
         """
         Propagates exact (nonlinear) state dynamics.
+
         Inputs:
              u: np.array[2,] - zero-order hold control input.
             dt: float        - duration of discrete time step.
@@ -60,6 +67,7 @@ class Ekf(object):
     def measurement_update(self, z_raw, Q_raw):
         """
         Updates belief state according to the given measurement.
+
         Inputs:
             z_raw: np.array[2,I]   - matrix of I columns containing (alpha, r)
                                      for each line extracted from the scanner
@@ -77,6 +85,10 @@ class Ekf(object):
 
         ########## Code starts here ##########
         # TODO: Update self.x, self.Sigma.
+        S = np.dot(H, np.dot(self.Sigma, H.T)) + Q
+        K = np.dot(self.Sigma, np.dot(H.T, np.linalg.inv(S)))
+        self.x = self.x + np.dot(K, z).flatten()
+        self.Sigma = self.Sigma - np.dot(K, np.dot(S, K.T))
 
         ########## Code ends here ##########
 
@@ -85,6 +97,7 @@ class Ekf(object):
         Converts raw measurements into the relevant Gaussian form (e.g., a
         dimensionality reduction). Also returns the associated Jacobian for EKF
         linearization.
+
         Inputs:
             z_raw: np.array[2,I]   - I lines extracted from scanner data in
                                      columns representing (alpha, r) in the scanner frame.
@@ -107,6 +120,7 @@ class EkfLocalization(Ekf):
     def __init__(self, x0, Sigma0, R, map_lines, tf_base_to_camera, g):
         """
         EkfLocalization constructor.
+
         Inputs:
                        x0: np.array[3,]  - initial belief mean.
                    Sigma0: np.array[3,3] - initial belief covariance.
@@ -128,6 +142,7 @@ class EkfLocalization(Ekf):
 
         ########## Code starts here ##########
         # TODO: Compute g, Gx, Gu using tb.compute_dynamics().
+        g, Gx, Gu = tb.compute_dynamics(self.x, u, dt)
 
         ########## Code ends here ##########
 
@@ -146,7 +161,12 @@ class EkfLocalization(Ekf):
 
         ########## Code starts here ##########
         # TODO: Compute z, Q.
-
+        z = np.hstack(v_list).reshape(-1, 1)
+        d_z = len(v_list[0])
+        Q = np.zeros((d_z*len(Q_list), d_z*len(Q_list)))
+        for i in range(len(Q_list)):
+            Q[i*d_z:(i+1)*d_z, i*d_z:(i+1)*d_z] = Q_list[i]
+        H = np.vstack(H_list)
         ########## Code ends here ##########
 
         return z, Q, H
@@ -155,6 +175,7 @@ class EkfLocalization(Ekf):
         """
         Given lines extracted from the scanner data, tries to associate each one
         to the closest map entry measured by Mahalanobis distance.
+
         Inputs:
             z_raw: np.array[2,I]   - I lines extracted from scanner data in
                                      columns representing (alpha, r) in the scanner frame.
@@ -186,7 +207,25 @@ class EkfLocalization(Ekf):
 
         ########## Code starts here ##########
         # TODO: Compute v_list, Q_list, H_list
-
+        v_list = []
+        Q_list = []
+        H_list = []
+        for i in range(z_raw.shape[1]):
+            best_vij = None
+            best_Hj = None
+            d_best = 1e9
+            for j in range(hs.shape[1]):
+                vij = z_raw[:, i] - hs[:, j]
+                Sij = np.dot(Hs[j], np.dot(self.Sigma, Hs[j].T)) + Q_raw[i]
+                dij = np.dot(vij.T, np.dot(np.linalg.inv(Sij), vij))
+                if dij < d_best and dij < self.g*self.g:
+                    d_best = dij
+                    best_vij = vij
+                    best_Hj = Hs[j]
+            if best_vij is not None:
+                v_list.append(best_vij)
+                Q_list.append(Q_raw[i])
+                H_list.append(best_Hj)
         ########## Code ends here ##########
 
         return v_list, Q_list, H_list
@@ -196,6 +235,7 @@ class EkfLocalization(Ekf):
         Given a single map line in the world frame, outputs the line parameters
         in the scanner frame so it can be associated with the lines extracted
         from the scanner measurements.
+
         Input:
             None
         Outputs:
@@ -207,7 +247,8 @@ class EkfLocalization(Ekf):
         for j in range(self.map_lines.shape[1]):
             ########## Code starts here ##########
             # TODO: Compute h, Hx using tb.transform_line_to_scanner_frame().
-
+            h, Hx = tb.transform_line_to_scanner_frame(
+                self.map_lines[:, j], self.x, self.tf_base_to_camera)
             ########## Code ends here ##########
 
             h, Hx = tb.normalize_line_parameters(h, Hx)
@@ -225,6 +266,7 @@ class EkfSlam(Ekf):
     def __init__(self, x0, Sigma0, R, tf_base_to_camera, g):
         """
         EKFSLAM constructor.
+
         Inputs:
                        x0: np.array[3+2J,]     - initial belief mean.
                    Sigma0: np.array[3+2J,3+2J] - initial belief covariance.
