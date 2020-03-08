@@ -291,7 +291,10 @@ class EkfSlam(Ekf):
 
         ########## Code starts here ##########
         # TODO: Compute g, Gx, Gu.
-
+        g_p, Gx_p, Gu_p = tb.compute_dynamics(self.x[:3], u, dt)
+        g[:3] = g_p
+        Gx[:3,:3] = Gx_p
+        Gu[:3,:] = Gu_p
         ########## Code ends here ##########
 
         return g, Gx, Gu
@@ -317,6 +320,12 @@ class EkfSlam(Ekf):
         ########## Code starts here ##########
         # TODO: Compute z, Q, H.
         # Hint: Should be identical to EkfLocalization.measurement_model().
+        z = np.hstack(v_list).reshape(-1, 1)
+        d_z = len(v_list[0])
+        Q = np.zeros((d_z*len(Q_list), d_z*len(Q_list)))
+        for i in range(len(Q_list)):
+            Q[i*d_z:(i+1)*d_z, i*d_z:(i+1)*d_z] = Q_list[i]
+        H = np.vstack(H_list)
 
         ########## Code ends here ##########
 
@@ -344,7 +353,25 @@ class EkfSlam(Ekf):
 
         ########## Code starts here ##########
         # TODO: Compute v_list, Q_list, H_list.
-
+        v_list = []
+        Q_list = []
+        H_list = []
+        for i in range(z_raw.shape[1]):
+            best_vij = None
+            best_Hj = None
+            d_best = 1e9
+            for j in range(hs.shape[1]):
+                vij = z_raw[:, i] - hs[:, j]
+                Sij = np.dot(Hs[j], np.dot(self.Sigma, Hs[j].T)) + Q_raw[i]
+                dij = np.dot(vij.T, np.dot(np.linalg.inv(Sij), vij))
+                if dij < d_best and dij < self.g*self.g:
+                    d_best = dij
+                    best_vij = vij
+                    best_Hj = Hs[j]
+            if best_vij is not None:
+                v_list.append(best_vij)
+                Q_list.append(Q_raw[i])
+                H_list.append(best_Hj)
         ########## Code ends here ##########
 
         return v_list, Q_list, H_list
@@ -356,6 +383,11 @@ class EkfSlam(Ekf):
         J = (self.x.size - 3) // 2
         hs = np.zeros((2, J))
         Hx_list = []
+        x_b, y_b, th_b = self.x[:3]
+        x_cb, y_cb, th_cb = self.tf_base_to_camera
+        x_c = np.cos(th_b)*x_cb - np.sin(th_b)*y_cb + x_b
+        y_c = np.sin(th_b)*x_cb + np.cos(th_b)*y_cb + y_b
+        d_c = np.linalg.norm([x_c, y_c])
         for j in range(J):
             idx_j = 3 + 2 * j
             alpha, r = self.x[idx_j:idx_j+2]
@@ -364,12 +396,16 @@ class EkfSlam(Ekf):
 
             ########## Code starts here ##########
             # TODO: Compute h, Hx.
-
+            h, Hxp = tb.transform_line_to_scanner_frame(
+                self.x[idx_j:idx_j+2], self.x[:3], self.tf_base_to_camera)
+            Hx[:, :3] = Hxp
             # First two map lines are assumed fixed so we don't want to propagate
             # any measurement correction to them.
             if j >= 2:
                 Hx[:, idx_j:idx_j+2] = np.eye(2)  # FIX ME!
             ########## Code ends here ##########
+                alpha, r = self.x[idx_j:idx_j+2]
+                Hx[:, idx_j:idx_j+2] = np.array([[1, 0], [d_c*np.sin(alpha - np.arctan2(y_c, y_b)), 1]])
 
             h, Hx = tb.normalize_line_parameters(h, Hx)
             hs[:, j] = h
