@@ -58,8 +58,9 @@ class ParticleFilter(object):
         ########## Code starts here ##########
         # TODO: Update self.xs.
         # Hint: Call self.transition_model().
-
-
+        noise = np.random.multivariate_normal(np.zeros(len(u)),self.R, self.M)
+        us = u + noise # (M, 2)
+        self.xs = self.transition_model(us,dt)
         ########## Code ends here ##########
 
     def transition_model(self, us, dt):
@@ -113,8 +114,14 @@ class ParticleFilter(object):
         # Hint: To maximize speed, try to implement the resampling algorithm
         #       without for loops. You may find np.linspace(), np.cumsum(), and
         #       np.searchsorted() useful. This results in a ~10x speedup.
-
-
+        ws_sum = np.sum(ws)
+        ratio = np.linspace(0,self.M,self.M,endpoint=False)
+        ratio = ratio/self.M
+        u = ws_sum*(ratio + r)
+        c = np.cumsum(ws)
+        idx = np.searchsorted(c, u)
+        self.ws = ws[idx]
+        self.xs = xs[idx, :]
         ########## Code ends here ##########
 
     def measurement_model(self, z_raw, Q_raw):
@@ -177,7 +184,18 @@ class MonteCarloLocalization(ParticleFilter):
 
 
         ########## Code ends here ##########
-
+        V = us[:,0]
+        om = us[:,1]
+        om[(np.abs(om)<EPSILON_OMEGA) & (om>=0)] = EPSILON_OMEGA
+        x_prev = self.xs[:,0]
+        y_prev = self.xs[:,1]
+        theta_prev = self.xs[:,2]
+        x0 = x_prev - V*np.sin(theta_prev)/om
+        x_next = x0 + V*np.sin(om*dt + theta_prev)/om
+        y0 = y_prev + V*np.cos(theta_prev)/om
+        y_next = y0 - V*np.cos(om*dt + theta_prev)/om
+        theta_next = theta_prev + dt*om
+        g = np.column_stack((x_next, y_next, theta_next))
         return g
 
     def measurement_update(self, z_raw, Q_raw):
@@ -201,8 +219,10 @@ class MonteCarloLocalization(ParticleFilter):
         # Hint: To maximize speed, implement this without looping over the
         #       particles. You may find scipy.stats.multivariate_normal.pdf()
         #       useful.
-
-
+        vs, Q = self.measurement_model(z_raw, Q_raw)
+        pdf = scipy.stats.multivariate_normal.pdf(vs, np.zeros(np.prod(z_raw.shape)), Q) # (M)
+        ws = self.ws * pdf
+        ws = ws / np.sum(ws)
         ########## Code ends here ##########
 
         self.resample(xs, ws)
@@ -225,8 +245,10 @@ class MonteCarloLocalization(ParticleFilter):
 
         ########## Code starts here ##########
         # TODO: Compute Q.
-
-
+        d_z = z_raw.shape[0]
+        Q = np.zeros((d_z*len(Q_raw), d_z*len(Q_raw)))
+        for i in range(len(Q_raw)):
+            Q[i*d_z:(i+1)*d_z, i*d_z:(i+1)*d_z] = Q_raw[i]
         ########## Code ends here ##########
 
         return vs, Q
@@ -268,8 +290,19 @@ class MonteCarloLocalization(ParticleFilter):
         #       Eliminating loops over I results in a ~2x speedup.
         #       Eliminating loops over M results in a ~5x speedup.
         #       Overall, that's 100x!
-
-
+        hs = self.compute_predicted_measurements() # (M, 2, J)
+        hs = np.transpose(hs, (0, 2, 1)) # (M, J, 2)
+        hs = np.expand_dims(hs, 1) # (M, 1, J, 2)
+        z_raw = z_raw.T # (I, 2)
+        z_raw = np.expand_dims(z_raw, 0) # (1, I, 2)
+        z_raw = np.expand_dims(z_raw, 2) # (1, I, 1, 2)
+        vs = z_raw - hs # (M, I, J, 2)
+        vs_q = np.matmul(vs, np.linalg.inv(Q_raw)) # (M, I, J, 2)
+        d_square = np.sum(vs_q * vs, axis=-1) # (M, I, J)
+        min_index = np.argmin(d_square, axis=-1) # (M, I)
+        min_index = np.expand_dims(min_index, -1) # (M, I, 1)
+        min_index = np.expand_dims(min_index, -1) # (M, I, 1, 1)
+        vs = np.squeeze(np.take_along_axis(vs,min_index,axis=2)) # (M, I, 2)
         ########## Code ends here ##########
 
         # Reshape [M x I x 2] array to [M x 2I]
@@ -294,7 +327,25 @@ class MonteCarloLocalization(ParticleFilter):
         #       versions of turtlebod_model functions directly here. This
         #       results in a ~10x speedup.
 
+        alpha = self.map_lines[0,:] # (J)
+        r = self.map_lines[1,:] # (J)
+        x_b = np.reshape(self.xs[:,0], (-1,1))
+        y_b = np.reshape(self.xs[:,1], (-1,1))
+        th_b = np.reshape(self.xs[:,2], (-1,1)) # (M,1)
+        x_cb, y_cb, th_cb = self.tf_base_to_camera
+        # coordinate of camera in world frame
+        x_c = np.cos(th_b)*x_cb - np.sin(th_b)*y_cb + x_b # (M,1)
+        y_c = np.sin(th_b)*x_cb + np.cos(th_b)*y_cb + y_b
 
+        alpha_c = alpha - th_b - th_cb # (M,J)
+        d_c = np.sqrt((x_c*x_c)+(y_c*y_c)) # (M,1)
+        r_c = np.reshape(r,(1,-1)) - d_c*np.cos(alpha - np.arctan2(y_c, x_c)) # (M,J)
+        # normalize line parameter
+        alpha_c = np.where(r_c < 0 , alpha_c + np.pi, alpha_c)
+        r_c = np.where(r_c < 0, -r_c, r_c)
+        alpha_c = (alpha_c + np.pi) % (2*np.pi) - np.pi
+        hs = np.hstack([alpha_c, r_c]) # (M, 2J)
+        hs = np.reshape(hs, (self.M,2,-1)) # (M, 2, J)
         ########## Code ends here ##########
 
         return hs
