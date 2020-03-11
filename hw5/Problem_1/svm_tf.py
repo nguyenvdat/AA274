@@ -15,14 +15,15 @@ def identity_phi(x):
 
 def circle_phi(x):
     ######### Your code starts here #########
-
+    x = np.hstack((x, np.prod(x, axis=-1, keepdims=True)))
     ######### Your code ends here #########
     return x
 
 
 def inner_circle_phi(x):
     ######### Your code starts here #########
-    
+    d = np.sqrt(np.sum(x*x, axis=-1, keepdims=True))
+    x = np.hstack((x,d))
     ######### Your code ends here #########
     return x
 
@@ -43,12 +44,10 @@ class SVM(tf.keras.Model):
         Hint: your return values should be different based on is_prediction.
         """
         ######### Your code starts here #########
-        
-
-
-
-
-
+        y_est = tf.matmul(x, self.W) - self.b
+        if is_prediction:
+            return tf.math.sign(y_est)
+        return y_est
         ######### Your code ends here #########
 
 
@@ -58,12 +57,12 @@ def loss(y_est, y, W, lam):
     """
     y = tf.cast(y, dtype=tf.float32)
     ######### Your code starts here #########
-    
+    current_loss = tf.reduce_mean(tf.maximum(0.0, 1 - tf.multiply(y, y_est))) + lam*tf.norm(W)
     ######### Your code ends here #########
-    return loss
+    return current_loss
 
 
-def svm(data, basis_function=identity_phi, epochs=10, ret_dec_p=False):
+def svm(data, basis_function=identity_phi, epochs=20, ret_dec_p=False):
     """
     Trains and tests SVM classifier. 
     """
@@ -72,7 +71,8 @@ def svm(data, basis_function=identity_phi, epochs=10, ret_dec_p=False):
         'eval_batch_size': 32,
         ######### Your code starts here #########
         # define your learning rate ('lr') and lambda ('lam') values here
-        
+        'lr': 0.001,
+        'lam': 0.5
 
         ######### Your code ends here #########
     }
@@ -94,13 +94,12 @@ def svm(data, basis_function=identity_phi, epochs=10, ret_dec_p=False):
         # 3. Based on the loss calculate the gradient for all weights
         # 4. Run an optimization step on the weights.
         # Helpful Functions: tf.GradientTape(), tf.GradientTape.gradient(), tf.keras.Optimizer.apply_gradients
-        
-
-
-
-
+        with tf.GradientTape() as t:
+            y_est = svm_model(x, is_prediction=False)
+            current_loss = loss(y_est, y, svm_model.W, params['lam'])
+        dW, db = t.gradient(current_loss, [svm_model.W, svm_model.b])
+        optimizer.apply_gradients(zip([dW, db], [svm_model.W, svm_model.b]))
         ######### Your code ends here #########
-
         train_loss(current_loss)
         train_accuracy(y, svm_model(x))
 
@@ -117,10 +116,11 @@ def svm(data, basis_function=identity_phi, epochs=10, ret_dec_p=False):
         # 2. Calculate the loss for the output of the forward pass
         # 3. Get the predicted labels for the batch
         # 4. Add to the values to the respective metrics -> See train_step
-        
-
-
-
+        y_est = svm_model(x, is_prediction=False)
+        current_loss = loss(y_est, y, svm_model.W, params['lam'])
+        y_pred = svm_model(x)
+        eval_loss(current_loss)
+        eval_accuracy(y, y_pred)
         ######### Your code ends here #########
 
     @tf.function
@@ -168,12 +168,18 @@ def get_hog_data():
     """
     pedestrian_data = np.load("pedestrian_dataset.npz")
     ######### Your code starts here #########
-    
-
-
-
-
-    
+    _, train_neg = tf_histogram_of_oriented_gradients(pedestrian_data['train_neg'])
+    _, train_pos = tf_histogram_of_oriented_gradients(pedestrian_data['train_pos'])
+    _, eval_neg = tf_histogram_of_oriented_gradients(pedestrian_data['eval_neg'])
+    _, eval_pos = tf_histogram_of_oriented_gradients(pedestrian_data['eval_pos'])
+    _, test_neg = tf_histogram_of_oriented_gradients(pedestrian_data['test_neg'])
+    _, test_pos = tf_histogram_of_oriented_gradients(pedestrian_data['test_pos'])
+    x_train = np.vstack((train_neg, train_pos))
+    x_eval = np.vstack((eval_neg, eval_pos))
+    x_pred = np.vstack((test_neg, test_pos))
+    y_train = np.vstack((-np.ones((train_neg.shape[0],1)), np.ones((train_pos.shape[0],1))))
+    y_eval = np.vstack((-np.ones((eval_neg.shape[0],1)), np.ones((eval_pos.shape[0],1))))
+    y_true = np.vstack((-np.ones((test_neg.shape[0],1)), np.ones((test_pos.shape[0],1))))
     ######### Your code ends here #########
     return (x_train, y_train), (x_eval, y_eval), (x_pred, y_true)
 
