@@ -4,6 +4,7 @@ import tensorflow as tf1
 import tensorflow.compat.v2 as tf
 from utils import IMG_SIZE, image_generator, LABELS, maybe_makedirs
 tf1.compat.v1.enable_eager_execution()
+import pickle
 
 BATCH_SIZE = 100
 IMG_SHAPE = (IMG_SIZE, IMG_SIZE, 3)
@@ -30,11 +31,10 @@ def get_bottleneck_dataset(model, img_dir, img_size):
         # bottelneck_x_l -> list of tensors with dimension [1, bottleneck_size]
         # bottelneck_y_l -> list of tensors with dimension [1, num_labels]
         # Fill in the parts indicated by #FILL#. No additional lines are required.
-
-        
-
-
-
+        x_i, y_i = next(train_img_gen)
+        bottelneck_x = model(x_i)
+        bottelneck_x_l.append(bottelneck_x)
+        bottelneck_y_l.append(y_i)
         ######### Your code ends here #########
 
     bottelneck_ds = tf.data.Dataset.from_tensor_slices((np.vstack(bottelneck_x_l),
@@ -50,8 +50,9 @@ def retrain(image_dir):
                                                    pooling='avg',
                                                    weights='imagenet')
 
-    base_model.summary()
+    # base_model.summary()
     base_model.compile(loss='mse')
+    input_shape = base_model.output_shape[1:]
 
     print("Generating Bottleneck Dataset... this may take some minutes.")
     bottleneck_train_ds, num_train = get_bottleneck_dataset(base_model, img_dir=image_dir, img_size=IMG_SIZE)
@@ -68,14 +69,12 @@ def retrain(image_dir):
     #   2.4 Create a new model
     # 3. Define a loss and a evaluation metric
     # Fill in the parts indicated by #FILL#. No additional lines are required.
-
-    
-
-
-
-
-
-
+    input_shape = base_model.output_shape[1:]
+    retrain_model  = tf.keras.models.Sequential([
+        tf.keras.layers.Dense(len(LABELS), input_shape=input_shape)
+    ])
+    loss = tf.keras.losses.CategoricalCrossentropy(from_logits=True)
+    metric = 'accuracy'
     ######### Your code ends here #########
 
     retrain_model.compile(optimizer=tf.keras.optimizers.SGD(lr=lr),
@@ -89,18 +88,17 @@ def retrain(image_dir):
     tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir='./retrain_logs', update_freq='batch')
     retrain_model.fit(train_batches,
                       epochs=EPOCHS,
-                      steps_per_epoch=steps_per_epoch,
-                      callbacks=[tensorboard_callback])
+                      steps_per_epoch=steps_per_epoch)
+                    #   callbacks=[tensorboard_callback])
 
     ######### Your code starts here #########
     # We now want to create the full model using the newly trained classifier
     # Use tensorflow keras Sequential to stack the base_model and the new layers
     # Fill in the parts indicated by #FILL#. No additional lines are required.
-    
-
-
-
-    
+    model = tf.keras.models.Sequential([
+        base_model,
+        retrain_model
+    ])
     ######### Your code ends here #########
 
     model.compile(loss=loss, metrics=[metric])

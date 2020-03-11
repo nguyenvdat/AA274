@@ -2,6 +2,8 @@ import numpy as np
 import argparse
 import tensorflow.compat.v2 as tf
 from utils import IMG_SIZE, LABELS, image_generator
+import tensorflow as tf1
+tf1.compat.v1.enable_eager_execution()
 
 
 def classify(model, test_dir):
@@ -21,21 +23,17 @@ def classify(model, test_dir):
     # Classify all images in the given folder
     # Calculate the accuracy and the number of test samples in the folder
     # test_img_gen has a list attribute filenames where you can access the filename of the datapoint
-    
-
-
-
-
-
-
-
-
-
-
-    
-
+    num_test = test_img_gen.samples
+    correct_count = 0
+    for i in range(num_test):
+        x_i, y_i = next(test_img_gen)
+        y_pred = model(x_i).numpy()
+        if np.argmax(y_pred[0]) == np.argmax(y_i[0]):
+            correct_count += 1
+        else:
+            print(test_img_gen.filenames[i])
     ######### Your code ends here #########
-
+    accuracy = correct_count / num_test
     print(f"Evaluated on {num_test} samples.")
     print(f"Accuracy: {accuracy*100:.0f}%")
 

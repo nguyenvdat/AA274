@@ -28,28 +28,22 @@ def compute_brute_force_classification(model, image_path, nH=8, nW=8):
     '''
 
     # H x W x 3 numpy array (3 for each RGB color channel)
-    raw_image = decode_jpeg(image_path).numpy()
-
+            
     ######### Your code starts here #########
-
-    
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+    window_predictions = np.zeros((nH, nW, 3))
+    raw_image = decode_jpeg(image_path).numpy().astype(float)
+    H, W, _ = raw_image.shape
+    window_h = int(H / nH)
+    window_w = int(W / nW)
+    for i in range(nH):
+        for j in range(nW):
+            window = raw_image[i*window_h: (i+1)*window_h if i<nH-1 else H, j*window_w: (j+1)*window_w if j<nW-1 else W, :]
+            paddings = tf.constant([[2, 2,], [2, 2], [0, 0]])
+            window = tf.pad(window, paddings, "CONSTANT")
+            window = normalize_resize_image(window, IMG_SIZE)
+            window = tf.expand_dims(window, 0)
+            y_pred = np.squeeze(tf.nn.softmax(model(window)).numpy())
+            window_predictions[i, j, :] = y_pred
     ######### Your code ends here #########
 
     return window_predictions
@@ -65,17 +59,18 @@ def compute_convolutional_KxK_classification(model, image_path):
     raw_image = decode_jpeg(image_path).numpy()
     resized_patch = normalize_resize_image(raw_image, IMG_SIZE)
     conv_model = tf.keras.Model(model.layers[0].inputs, model.layers[0].layers[-2].output)
+    linear_model = model.layers[1]
+    print(model.summary())
 
     ######### Your code starts here #########
     # Fill in the parts indicated by #FILL#. No additional lines are required.
     # We want to use the output of the last convolution layer which has the shape [bs, K, K, bottleneck_size]
-
-
-
-
-
-
-
+    resized_patch = tf.expand_dims(resized_patch, 0)
+    conv_layer = conv_model(resized_patch) # (1, K, K, d)
+    _,K,_,_ = conv_layer.get_shape().as_list()
+    conv_layer = tf.reshape(conv_layer, (K*K, -1))
+    logit = linear_model(conv_layer)
+    predictionsKxK = tf.nn.softmax(logit).numpy()
     ######### Your code ends here #########
 
     return np.reshape(predictionsKxK, [K, K, -1])
@@ -95,19 +90,21 @@ def compute_and_plot_saliency(model, image_path):
     """
     raw_image = tf.dtypes.cast(decode_jpeg(image_path), tf.float32)
 
-    logits_tensor = model.get_layer('classifier')
-    logits_model = tf.keras.Model(model.input, logits_tensor.output)
+    # logits_tensor = model.get_layer('classifier')
+    # logits_tensor = model.layers[1]
+    # logits_model = tf.keras.Model(model.input, logits_tensor.output)
 
     with tf.GradientTape() as t:
         ######### Your code starts here #########
         # Fill in the parts indicated by #FILL#. No additional lines are required.
-
-
-
-
-
-
-
+        t.watch(raw_image)
+        img = normalize_resize_image(raw_image, IMG_SIZE)
+        img = tf.expand_dims(img, 0)
+        logit = tf.squeeze(model(img))
+        top_logit = tf.math.reduce_max(logit)
+    M = t.gradient(top_logit, raw_image).numpy()
+    M = np.amax(np.squeeze(M), axis=2)
+    top_class = tf.math.argmax(logit)
         ######### Your code ends here #########
 
     plt.subplot(2, 1, 1)
