@@ -65,16 +65,45 @@ def grasp_optimization(grasp_normals, points, friction_coeffs, wrench_ext):
     bs = []
     cs = []
     ds = []
-    F = np.zeros(1)
+    Fs = []
     g = np.zeros(1)
     h = np.zeros(1)
 
-    x = cp.Variable(1)
-
+    x_length = M*D + 1
+    x = cp.Variable(x_length)
+    for i in range(M):
+        # cone constraint for M points
+        A = np.zeros((D-1, x_length))
+        A[:, i*D:(i+1)*D-1] = np.eye(D-1)
+        As.append(A)
+        b = np.zeros(D-1)
+        bs.append(b)
+        c = np.zeros(x_length)
+        c[(i+1)*D-1] = friction_coeffs[i]
+        cs.append(c)
+        ds.append(0)
+        # cone constraint for auxiliary variable F
+        A = np.zeros((D, x_length))
+        A[:, i*D:(i+1)*D] = np.eye(D)
+        As.append(A)
+        b = np.zeros(D)
+        bs.append(b)
+        c = np.zeros(x_length)
+        c[-1] = 1
+        cs.append(c)
+        ds.append(0)
+        # equality constraint
+        Fi = np.vstack((transformations[i], cross_matrix(points[i])@transformations[i])) # 6x3 for spatial, 3x2 for planar
+        Fs.append(Fi)
+    Fs.append(np.zeros((N,1))) # account for auxiliary variable
+    F = np.hstack(Fs)
+    g = -wrench_ext
+    h = np.zeros(x_length)
+    h[-1] = 1
     x = solve_socp(x, As, bs, cs, ds, F, g, h, verbose=False)
 
     # TODO: extract the grasp forces from x as a stacked 1D vector
-    f = x
+    f = x[:-1]
     ########## Your code ends here ##########
 
     # Transform the forces to the global frame
@@ -106,7 +135,13 @@ def precompute_force_closure(grasp_normals, points, friction_coeffs):
     #       wrenches and store them as rows in the matrix F. This matrix will be
     #       captured by the returned force_closure() function.
     F = np.zeros((2*N, M*D))
-
+    for i in range(N):
+        w = np.zeros(N)
+        w[i] = 1
+        F[2*i,:] = np.hstack(grasp_optimization(grasp_normals, points, friction_coeffs, w))
+        w = np.zeros(N)
+        w[i] = -1
+        F[2*i+1,:] = np.hstack(grasp_optimization(grasp_normals, points, friction_coeffs, w))
     ########## Your code ends here ##########
 
     def force_closure(wrench_ext):
@@ -123,8 +158,8 @@ def precompute_force_closure(grasp_normals, points, friction_coeffs):
 
         ########## Your code starts here ##########
         # TODO: Compute the force closure forces as a stacked vector of shape (N*M)
-        f = np.zeros(N*M)
-
+        w = np.ravel(np.vstack((np.maximum(wrench_ext, 0), np.maximum(-wrench_ext, 0))), order='F')
+        f = np.dot(w, F)
         ########## Your code ends here ##########
 
         forces = [f_i for f_i in f.reshape(M,D)]
