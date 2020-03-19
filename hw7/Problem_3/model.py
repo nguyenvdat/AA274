@@ -25,7 +25,7 @@ class AccelerationLaw(tf.keras.layers.Layer):
         mu, th = inputs
 
         ########## Your code starts here ##########
-        a = None  # TODO
+        a = self.g * (tf.math.sin(th) - mu*tf.math.cos(th))  # TODO
         ########## Your code ends here ##########
 
         # Ensure output acceleration is positive
@@ -60,13 +60,21 @@ def build_model():
     ########## Your code starts here ##########
     # TODO: Create your neural network and replace the following two layers
     #       according to the given specification.
-
-    p_class = tf.keras.layers.Dense(1, name='p_class')(img_input)
-    mu = tf.keras.layers.Dense(1, name='mu')(p_class)
+    conv1 = tf.keras.layers.Conv2D(20, (3,3), strides=(2,2), padding='same', name='conv1')(img_input)
+    bn1 = tf.keras.layers.BatchNormalization()(conv1)
+    av1 = tf.keras.layers.Activation('relu')(bn1)
+    drop1 = tf.keras.layers.Dropout(0.2)(av1)
+    conv2 = tf.keras.layers.Conv2D(20, (3,3), strides=(2,2), padding='same')(drop1)
+    bn2 = tf.keras.layers.BatchNormalization()(conv2)
+    av2 = tf.keras.layers.Activation('relu')(bn2)
+    drop2 = tf.keras.layers.Dropout(0.2)(av2)
+    flatten = tf.keras.layers.Flatten()(drop2)
+    p_class = tf.keras.layers.Dense(32)(flatten)
+    p_class = tf.keras.layers.Softmax(name='p_class')(p_class)
+    mu = tf.keras.layers.Dense(32, name='mu')(p_class)
+    mu_pred = tf.math.reduce_sum(tf.math.multiply(p_class, mu), axis=-1, keepdims=True)
     ########## Your code ends here ##########
-
-    a_pred = AccelerationLaw(name='a')((mu, th_input))
-
+    a_pred = AccelerationLaw(name='a')((mu_pred, th_input))
     return tf.keras.Model(inputs=[img_input, th_input], outputs=[a_pred])
 
 def build_baseline_model():
@@ -90,8 +98,16 @@ def build_baseline_model():
 
     ########## Your code starts here ##########
     # TODO: Replace the following with your model from build_model().
-
-    a_pred = tf.keras.layers.Dense(1, name='a')(img_input)
+    conv1 = tf.keras.layers.Conv2D(20, (3,3), strides=(2,2), padding='same', name='conv1')(img_input)
+    bn1 = tf.keras.layers.BatchNormalization()(conv1)
+    av1 = tf.keras.layers.Activation('relu')(bn1)
+    drop1 = tf.keras.layers.Dropout(0.2)(av1)
+    conv2 = tf.keras.layers.Conv2D(20, (3,3), strides=(2,2), padding='same')(drop1)
+    bn2 = tf.keras.layers.BatchNormalization()(conv2)
+    av2 = tf.keras.layers.Activation('relu')(bn2)
+    drop2 = tf.keras.layers.Dropout(0.2)(av2)
+    flatten = tf.keras.layers.Flatten()(drop2)
+    a_pred = tf.keras.layers.Dense(1, name='a')(flatten)
     ########## Your code ends here ##########
 
     return tf.keras.Model(inputs=[img_input], outputs=[a_pred])
@@ -102,7 +118,8 @@ def loss(a_actual, a_pred):
     """
 
     ########## Your code starts here ##########
-    l = None  # TODO
+    error = a_actual - a_pred
+    l = tf.math.reduce_mean(tf.math.multiply(error, error))  # TODO
     ########## Your code ends here ##########
 
     return l
