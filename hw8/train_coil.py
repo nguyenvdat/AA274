@@ -20,9 +20,17 @@ class NN(tf.keras.Model):
         #           - tf.keras.initializers.GlorotUniform (supposedly equivalent to the previous one)
         #           - tf.keras.initializers.GlorotNormal
         #           - tf.keras.initializers.he_uniform or tf.keras.initializers.he_normal
-        
-        
-        
+        self.dense1 = tf.keras.layers.Dense(50, kernel_initializer=tf.keras.initializers.glorot_normal(), name='dense_1')
+        self.bn1 = tf.keras.layers.BatchNormalization()
+        self.av1 = tf.keras.layers.Activation('relu')
+        self.drop1 = tf.keras.layers.Dropout(0.2)
+        self.dense2 = tf.keras.layers.Dense(50, kernel_initializer=tf.keras.initializers.glorot_normal(), name='dense_2')
+        self.bn2 = tf.keras.layers.BatchNormalization()
+        self.av2 = tf.keras.layers.Activation('relu')
+        self.drop2 = tf.keras.layers.Dropout(0.2)
+        self.dense_u0 = tf.keras.layers.Dense(out_size, kernel_initializer=tf.keras.initializers.glorot_normal(), name='dense_u0')
+        self.dense_u1 = tf.keras.layers.Dense(out_size, kernel_initializer=tf.keras.initializers.glorot_normal(), name='dense_u1')
+        self.dense_u2 = tf.keras.layers.Dense(out_size, kernel_initializer=tf.keras.initializers.glorot_normal(), name='dense_u2')
         ########## Your code ends here ##########
 
     def call(self, x, u):
@@ -35,9 +43,21 @@ class NN(tf.keras.Model):
         # FYI: For the intersection scenario, u=0 means the goal is to turn left, u=1 straight, and u=2 right. 
         # HINT 1: Looping over all data samples may not be the most computationally efficient way of doing branching
         # HINT 2: While implementing this, we found tf.math.equal and tf.cast useful. This is not necessarily a requirement though.
-        
-
-
+        x = self.dense1(x)
+        x = self.bn1(x)
+        x = self.av1(x)
+        x = self.drop1(x)
+        x = self.dense2(x)
+        x = self.bn2(x)
+        x = self.av2(x)
+        x = self.drop2(x)
+        x0 = self.dense_u0(x)
+        x1 = self.dense_u1(x)
+        x2 = self.dense_u2(x)
+        x = tf.where(tf.math.equal(u, 0), x0, x1)
+        x = tf.where(tf.math.equal(u, 1), x1, x)
+        x = tf.where(tf.math.equal(u, 2), x2, x)
+        return x
         ########## Your code ends here ##########
 
 
@@ -49,9 +69,10 @@ def loss(y_est, y):
     # - y is the actions the expert took for the corresponding batch of observations & goals
     # At the end your code should return the scalar loss value.
     # HINT: Remember, you can penalize steering (0th dimension) and throttle (1st dimension) unequally
-
-
-
+    alpha = 5
+    error = y - y_est
+    error_sq = tf.math.multiply(error, error)
+    return tf.math.reduce_mean(alpha*error_sq[:,0] + error_sq[:,1])
     ########## Your code ends here ##########
    
 
@@ -82,9 +103,11 @@ def nn(data, args):
         # 4. Run an optimization step on the weights.
         # Helpful Functions: tf.GradientTape(), tf.GradientTape.gradient(), tf.keras.Optimizer.apply_gradients
         # HINT: You did the exact same thing in Homework 1! It is just the networks weights and biases that are different.
-        
-        
-
+        with tf.GradientTape() as t:
+            y_est = nn_model(x, u)
+            current_loss = loss(y_est, y)
+        grad = t.gradient(current_loss, nn_model.trainable_variables)
+        optimizer.apply_gradients(zip(grad, nn_model.trainable_variables))
         ########## Your code ends here ##########
 
         train_loss(current_loss)
