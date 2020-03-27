@@ -8,6 +8,7 @@ from gym_carlo.envs.interactive_controllers import KeyboardController
 from scipy.stats import multivariate_normal
 from train_ildist import NN
 from utils import *
+import tensorflow_probability as tfp
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
@@ -56,10 +57,17 @@ if __name__ == '__main__':
             # - action (1 x 2 numpy array) is the current action the user took when the observation is obs
             # The code should set a variable called "probs" which is list keeping the probabilities associated with goals[scenario_name], respectively.
             # HINT: multivariate_normal from scipy.stats might be useful, which is already imported. Or you can implement it yourself, too.
-
-
+            probs = []
+            for goal in goals[scenario_name]:
+                model = nn_models[goal]
+                y = model(obs)
+                mean = y[0,:2].numpy()
+                cov = tfp.math.fill_triangular(y[0,2:]).numpy()
+                cov = cov @ cov.T
+                probs.append(multivariate_normal.pdf(action, mean=mean, cov=cov))
+            probs = np.array(probs)
+            probs = probs/np.sum(probs)
             ########## Your code ends here ##########
-            
             
             # Print the prediction on the simulator window. This is also scenario-dependent.
             if (scenario_name == 'intersection' and env.ego_approaching_intersection) or scenario_name in ['circularroad','lanechange']:

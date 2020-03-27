@@ -8,6 +8,7 @@ from gym_carlo.envs.interactive_controllers import KeyboardController
 from scipy.stats import multivariate_normal
 from train_ildist import NN
 from utils import *
+import tensorflow_probability as tfp
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
@@ -58,8 +59,17 @@ if __name__ == '__main__':
             # - max_steering and max_throttle are the constraints, i.e. np.abs(a_robot[0]) <= max_steering and np.abs(a_robot[1]) <= max_throttle must be satisfied.
             # At the end, your code should set a_robot variable as a 1x2 numpy array that consists of steering and throttle values, respectively
             # HINT: You can use np.clip to threshold a_robot with respect to the magnitude constraints
-
-
+            a_robot = np.zeros((1,2))
+            probs_g_mean = np.mean(np.array(scores), axis=0)
+            for i, goal in enumerate(goals[scenario_name]):
+                model = nn_models[goal]
+                y = model(obs)
+                mean = y[:,:2].numpy()
+                o_robot = optimal_action[goal]
+                a_robot += probs_g_mean[i] * (o_robot - mean)
+            # print()
+            a_robot[0, 0] = np.clip(a_robot[0, 0], a_min = None, a_max = max_steering)
+            a_robot[0, 1] = np.clip(a_robot[0, 1], a_min = None, a_max = max_throttle)
 
             ########## Your code ends here ##########
             
@@ -75,9 +85,16 @@ if __name__ == '__main__':
             # - a_human (1 x 2 numpy array) is the current action the user took when the observation is obs
             # At the end, your code should set probs variable as a 1 x |G| numpy array that consists of the probability of each goal under obs and a_human
             # HINT: This should be very similar to the part in intent_inference.py 
-
-
-
+            probs = []
+            for goal in goals[scenario_name]:
+                model = nn_models[goal]
+                y = model(obs)
+                mean = y[0,:2].numpy()
+                cov = tfp.math.fill_triangular(y[0,2:]).numpy()
+                cov = cov @ cov.T
+                probs.append(multivariate_normal.pdf(a_human[0,:], mean=mean, cov=cov))
+            probs = np.array(probs)
+            probs = probs/np.sum(probs)
             ########## Your code ends here ##########
 
             # shift the scores and append the latest one
